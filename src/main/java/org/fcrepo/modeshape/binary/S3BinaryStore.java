@@ -63,6 +63,11 @@ public class S3BinaryStore extends AbstractBinaryStore {
     private String bucketName;
 
     /*
+     * System property key from which the bucket name will be retrieved
+     */
+    private static final String BUCKET_PROPERTY_KEY = "aws.bucket";
+
+    /*
      * Key for storing and retrieving extracted text from S3 object user metadata
      */
     protected static final String EXTRACTED_TEXT_KEY = "extracted-text";
@@ -79,24 +84,37 @@ public class S3BinaryStore extends AbstractBinaryStore {
      * as environment variables, java system properties, or via a credential file.
      * See: http://docs.aws.amazon.com/AWSSdkDocsJava/latest/DeveloperGuide/credentials.html
      *
-     * @param bucketName The name of the S3 bucket where files will be stored
+     * Bucket name must be set via the java system property: aws.bucket
      */
-    public S3BinaryStore(String bucketName) {
-        this.bucketName = bucketName;
+    public S3BinaryStore() {
+        this.bucketName = System.getProperty(BUCKET_PROPERTY_KEY);
         this.s3Client = new AmazonS3Client();
         this.fileSystemCache = TransientBinaryStore.get();
+        this.fileSystemCache.setMinimumBinarySizeInBytes(1L);
+
+        if(null == bucketName) {
+            throw new RuntimeException("Bucket name for binary store must be set " +
+                                       "using system property: " + BUCKET_PROPERTY_KEY);
+        } else {
+            // Ensure bucket exists
+            if(!s3Client.doesBucketExist(bucketName)) {
+                s3Client.createBucket(bucketName);
+            }
+        }
     }
 
     /**
-     * Creates a binary store with a connection to Amazon S3
+     * Creates a binary store with a connection to Amazon S3. This constructor is
+     * intended for testing only.
      *
      * @param bucketName The name of the S3 bucket where files will be stored
      * @param s3Client Client for communicating with Amazon S3
      */
-    public S3BinaryStore(String bucketName, AmazonS3Client s3Client) {
+    protected S3BinaryStore(String bucketName, AmazonS3Client s3Client) {
         this.bucketName = bucketName;
         this.s3Client = s3Client;
         this.fileSystemCache = TransientBinaryStore.get();
+        this.fileSystemCache.setMinimumBinarySizeInBytes(1L);
     }
 
     @Override
@@ -193,13 +211,15 @@ public class S3BinaryStore extends AbstractBinaryStore {
             if(!s3Client.doesObjectExist(bucketName, key.toString())) {
                 ObjectMetadata metadata = new ObjectMetadata();
                 // Set Mimetype
-                metadata.setContentType(getMimeType(cachedFile, key.toString()));
+                metadata.setContentType(
+                    fileSystemCache.getMimeType(cachedFile, key.toString()));
                 // Set Unused value
                 Map<String, String> userMetadata = metadata.getUserMetadata();
                 userMetadata.put(UNUSED_KEY, String.valueOf(markAsUnused));
                 metadata.setUserMetadata(userMetadata);
                 // Store content in S3
-                s3Client.putObject(bucketName, key.toString(), stream, metadata);
+                s3Client.putObject(bucketName, key.toString(),
+                                   fileSystemCache.getInputStream(key), metadata);
             } else {
                 // Set the unused value, if necessary
                 if(markAsUnused) {
