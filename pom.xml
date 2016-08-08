@@ -28,7 +28,7 @@
     <dependency>
       <groupId>org.modeshape</groupId>
       <artifactId>modeshape-jcr</artifactId>
-      <version>5.0.0.Final</version>
+      <version>5.1.0.Final</version>
     </dependency>
 
     <dependency>
